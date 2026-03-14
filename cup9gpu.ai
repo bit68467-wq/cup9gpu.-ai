@@ -1,0 +1,177 @@
+mkdir global-render-app
+cd global-render-app
+
+mkdir backend
+mkdir frontend
+
+# package.json
+cat << 'EOF' > backend/package.json
+{
+  "name": "render-global-app",
+  "version": "1.0.0",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "pg": "^8.11.3"
+  }
+}
+EOF
+
+# db.js
+cat << 'EOF' > backend/db.js
+import pkg from "pg";
+const { Pool } = pkg;
+
+const pool = new Pool({
+ connectionString: process.env.DATABASE_URL,
+ ssl: { rejectUnauthorized: false }
+});
+
+export default pool;
+EOF
+
+# server.js
+cat << 'EOF' > backend/server.js
+import express from "express";
+import cors from "cors";
+import dotenv from "dotenv";
+import pool from "./db.js";
+
+dotenv.config();
+
+const app = express();
+
+app.use(cors());
+app.use(express.json());
+
+app.get("/", (req,res)=>{
+ res.json({status:"API running"});
+});
+
+app.get("/users", async (req,res)=>{
+ try{
+  const result = await pool.query("SELECT * FROM users");
+  res.json(result.rows);
+ }catch(err){
+  res.status(500).json({error:err.message});
+ }
+});
+
+app.post("/users", async (req,res)=>{
+ const {name} = req.body;
+
+ try{
+  const result = await pool.query(
+   "INSERT INTO users(name) VALUES($1) RETURNING *",
+   [name]
+  );
+
+  res.json(result.rows[0]);
+ }catch(err){
+  res.status(500).json({error:err.message});
+ }
+});
+
+const PORT = process.env.PORT || 10000;
+
+app.listen(PORT, ()=>{
+ console.log("server running on",PORT);
+});
+EOF
+
+# frontend html
+cat << 'EOF' > frontend/index.html
+<!DOCTYPE html>
+<html>
+<head>
+<title>Global Render App</title>
+</head>
+
+<body>
+
+<h1>Global App</h1>
+
+<input id="name" placeholder="name">
+<button onclick="addUser()">Add</button>
+
+<ul id="users"></ul>
+
+<script src="app.js"></script>
+
+</body>
+</html>
+EOF
+
+# frontend js
+cat << 'EOF' > frontend/app.js
+const API="https://YOUR-BACKEND.onrender.com";
+
+async function loadUsers(){
+
+ const res=await fetch(API+"/users");
+ const users=await res.json();
+
+ const list=document.getElementById("users");
+ list.innerHTML="";
+
+ users.forEach(u=>{
+  const li=document.createElement("li");
+  li.textContent=u.name;
+  list.appendChild(li);
+ });
+
+}
+
+async function addUser(){
+
+ const name=document.getElementById("name").value;
+
+ await fetch(API+"/users",{
+  method:"POST",
+  headers:{
+   "Content-Type":"application/json"
+  },
+  body:JSON.stringify({name})
+ });
+
+ loadUsers();
+
+}
+
+loadUsers();
+EOF
+
+# render blueprint
+cat << 'EOF' > render.yaml
+services:
+ - type: web
+   name: global-backend
+   runtime: node
+   rootDir: backend
+   buildCommand: npm install
+   startCommand: npm start
+   envVars:
+    - key: DATABASE_URL
+      fromDatabase:
+        name: global-db
+        property: connectionString
+
+databases:
+ - name: global-db
+   plan: free
+EOF
+
+# git init
+git init
+git add .
+git commit -m "initial render deploy"
+
+echo ""
+echo "PROJECT READY"
+echo "Push to GitHub and deploy on Render"
